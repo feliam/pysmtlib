@@ -502,7 +502,7 @@ class Solver(object):
         self.input_symbols = list()
         self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
 
-        #fix for z3 declaration scopes
+        #run solver specific initializations
         for cfg in self._config[self._engine]['init']:
             self._send(cfg)
 
@@ -527,10 +527,16 @@ class Solver(object):
         self._stack = state['stack']
         self.input_symbols = state['input_symbols']
         self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
+        #run solver specific initializations
+        for cfg in self._config[self._engine]['init']:
+            self._send(cfg)
+
 
     def reset(self):
         self._send("(reset)")
-        self._send("(set-option :global-decls false)")
+        #run solver specific initializations
+        for cfg in self._config[self._engine]['init']:
+            self._send(cfg)
         self._send(self)
         self._status = 'unknown'
 
