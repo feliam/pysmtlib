@@ -1,0 +1,5 @@
+# Compiled Python files.
+*.pyc
+
+# Log files.
+*.log
