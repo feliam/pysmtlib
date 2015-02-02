@@ -477,7 +477,13 @@ class Array(object):
 
 #solver
 class Solver(object):
-    def __init__(self):
+
+    _config = { 'z3':     { 'command': 'z3 -t:120 -smt2 -in', 
+                            'init': ['(set-option :global-decls false)']},
+                'cvc4':   { 'command': 'cvc4 --incremental --lang=smt2',
+                            'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)']},
+              }
+    def __init__(self, engine='z3'):
         ''' Build a solver intance.
             This is implemented using an external native solver via a subprocess.
             Everytime a new symbol or assertion is added a smtlibv2 command is 
@@ -487,20 +493,24 @@ class Solver(object):
             The analisys may be saved to disk and continued after a while or 
             forked in memory or even sent over the network.
         '''
+        self._engine = 'z3'
         self._status = 'unknown'
         self._sid = 0
         self._stack = []
         self._declarations = {} #weakref.WeakValueDictionary()
         self._constraints = set()
         self.input_symbols = list()
-        self._proc = Popen('z3 -t:120 -smt2 -in', shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
+        self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
 
         #fix for z3 declaration scopes
-        self._send("(set-option :global-decls false)")
+        for cfg in self._config[self._engine]['init']:
+            self._send(cfg)
+
 
     #marshaling/pickle
     def __getstate__(self):
         state = {}
+        state['engine'] = self._engine
         state['sid'] = self._sid
         state['declarations'] = self._declarations
         state['constraints'] = self._constraints
@@ -509,13 +519,14 @@ class Solver(object):
         return state
 
     def __setstate__(self, state):
+        self._engine = state['engine']
         self._status = None
         self._sid = state['sid']
         self._declarations = state['declarations'] #weakref.WeakValueDictionary(state['declarations'])
         self._constraints = state['constraints']
         self._stack = state['stack']
         self.input_symbols = state['input_symbols']
-        self._proc = Popen('z3 -smt2 -in', shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
+        self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
 
     def reset(self):
         self._send("(reset)")
