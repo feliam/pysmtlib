@@ -34,6 +34,12 @@ from functools import wraps
 import logging
 logger = logging.getLogger("SMT")
 
+logging.basicConfig(
+    filename = "pysmtlib.log",
+    format = "%(asctime)s: %(name)s:%(levelname)s: %(message)s",
+    level = logging.DEBUG
+)
+
 def goaux_bv(old_method):
     @wraps(old_method)
     def new_method(self, *args, **kw_args):
@@ -755,6 +761,376 @@ class Solver(object):
         self._send(arr.declaration)
         if is_input:
             self.input_symbols.append((arr, max_size))
+        return arr
+
+    def mkBool(self, name='B', is_input=False):
+        ''' Creates a symbols array in the constrains store and names it name'''
+        if name in self._declarations:
+            name = '%s_%d'%(name, self._get_sid())
+        b = Bool(name, solver=self)
+        self._declarations[name] = b
+        self._send(b.declaration)
+        if is_input:
+            self.input_symbols.append((b,))
+        return b
+
+    @property
+    def declarations(self):
+        declarations = []
+        for name, var in self._declarations.items():
+            print name, var
+            declarations.append(var)
+        return declarations
+
+    #assertions
+    def add(self, constraint):
+        if isinstance(constraint, bool):
+            if not constraint:
+                self._status = 'unsat'
+            return
+        assert isinstance(constraint, Bool)
+        self._send('(assert %s)'%constraint)
+        self._constraints.add(constraint)
+        self._status = 'unknown'
+        #assert self.check() != 'unsat', "Impossible constraint asserted"
+
+    @property
+    def constraints(self):
+        constraints = []
+        for c in self._constraints:
+            constraints.append('(assert %s)'%c)
+        return constraints
+
+class CVC4Solver(object):
+    def __init__(self):
+        ''' Build a solver intance.
+            This is implemented using an external native solver via a subprocess.
+            Everytime a new symbol or assertion is added a smtlibv2 command is
+            sent to the solver.
+            The actual state is also mantained in memory to be able to save and
+            restore the state.
+            The analisys may be saved to disk and continued after a while or
+            forked in memory or even sent over the network.
+        '''
+        self._status = 'unknown'
+        self._sid = 0
+        self._stack = []
+        self._declarations = {} #weakref.WeakValueDictionary()
+        self._constraints = set()
+        self.input_symbols = list()
+        self._proc = Popen('cvc4 --incremental --lang=smt2', shell=True, stdin=PIPE, stdout=PIPE)
+
+        self._send("(set-logic QF_AUFBV)")
+        self._send("(set-option :produce-models true)")
+
+    #marshaling/pickle
+    def __getstate__(self):
+        state = {}
+        state['sid'] = self._sid
+        state['declarations'] = self._declarations
+        state['constraints'] = self._constraints
+        state['stack'] = self._stack
+        state['input_symbols'] = self.input_symbols
+        return state
+
+    def __setstate__(self, state):
+        self._status = None
+        self._sid = state['sid']
+        self._declarations = state['declarations'] #weakref.WeakValueDictionary(state['declarations'])
+        self._constraints = state['constraints']
+        self._stack = state['stack']
+        self.input_symbols = state['input_symbols']
+        self._proc = Popen('cvc4 --incremental --lang=smt2', shell=True, stdin=PIPE, stdout=PIPE)
+
+    def reset(self, full=False):
+        self._proc.kill()
+        self._proc.wait()
+        self._proc = None
+
+        self._proc = Popen('cvc4 --incremental --lang=smt2', shell=True, stdin=PIPE, stdout=PIPE)
+
+        if full:
+            self._status = 'unknown'
+            self._sid = 0
+            self._stack = []
+            self._declarations = {}
+            self._constraints = set()
+            self.input_symbols = list()
+
+        self._send("(set-logic QF_AUFBV)")
+        self._send("(set-option :produce-models true)")
+
+        self._send(self)
+        self._status = 'unknown'
+
+    def __del__(self):
+        self._proc.kill()
+        self._proc.wait()
+        self._proc = None
+
+    def _get_sid(self):
+        ''' Returns an unique id. '''
+        self._sid += 1
+        return self._sid
+
+    def _send(self, cmd):
+        ''' Send a string to the solver.
+            @param cmd: a SMTLIBv2 command (ex. (check-sat))
+        '''
+        logger.debug('>%s',cmd)
+        self._proc.stdin.writelines((str(cmd),'\n'))
+
+    def _recv(self):
+        ''' Reads the response from the solver '''
+        def readline():
+            buf = self._proc.stdout.readline()
+            return buf, buf.count('('), buf.count(')')
+        bufl = []
+        left = 0
+        right = 0
+        buf,l,r = readline()
+        bufl.append(buf)
+        left +=l
+        right+=r
+        while left != right:
+            buf,l,r = readline()
+            bufl.append(buf)
+            left +=l
+            right+=r
+        buf = ''.join(bufl).strip()
+        logger.debug('<%s', buf)
+        if '(error' in bufl[0]:
+            print "Error in simplify", buf
+            raise Exception("Error in smtlib <"+str(self)+">")
+        return buf
+
+    def __str__(self):
+        ''' Returns a smtlib representation of the current state '''
+        buf = ''
+        for d in self._declarations.values():
+            buf += d.declaration +'\n'
+        for a in self.constraints:
+            buf += '%s\n'%a
+        return buf
+
+
+    #get-all-values min max minmax
+    def getallvalues(self, x, maxcnt = 30):
+        ''' Returns a list with all the possible values for the symbol x'''
+        assert self.check() == 'sat'
+        assert type(x) is BitVec
+        result = []
+        self.push()
+        try:
+            aux = self.mkBitVec(x.size)
+            self.add(aux==x)
+            r = self.check()
+            val = None
+            while r != 'unsat':
+                val = self.getvalue(aux)
+                result.append( val)
+                self.add(x!=val)
+                r = self.check()
+                if len(result) > maxcnt:
+                    raise Exception("Max number of different solutions hit")
+        except Exception,e:
+            raise e
+        finally:
+            self.pop()
+        return result
+
+    def max(self, X, M=10000):
+        ''' Iterativelly finds the maximum value for a symbol.
+            @param X: a symbol or expression
+            @param M: maximun number of iterations allowed
+        '''
+        assert self.check() == 'sat'
+        assert type(X) is BitVec
+        self.push()
+        aux = self.mkBitVec(X.size)
+        self.add(aux==X)
+        try:
+            last_value = None
+            i = 0
+            while True:
+                r = self.check()
+                if r == 'unsat':
+                    if last_value != None:
+                        return last_value
+                    else:
+                        raise Exception("max failed")
+                elif r =='sat':
+                    last_value = self.getvalue(aux)
+                    self.add(UGT(aux,last_value))
+                    i = i + 1
+                else:
+                    raise Exception("solver failed %s"%r)
+                if (i > M):
+                    raise Exception("Maximum not found, maximum number of iterations was reached")
+        finally:
+            self.pop()
+
+    def min(self, X, M=10000):
+        ''' Iterativelly finds the minimum value for a symbol.
+            @param X: a symbol or expression
+            @param M: maximun number of iterations allowed
+        '''
+        assert self.check() == 'sat'
+        assert type(X) is BitVec
+        self.push()
+        aux = self.mkBitVec(X.size)
+        self.add(aux==X)
+        try:
+            last_value = None
+            i = 0
+            while True:
+                r = self.check()
+                if r == 'unsat':
+                    if last_value != None:
+                        return last_value
+                    else:
+                        raise Exception("max failed")
+                elif r =='sat':
+                    last_value = self.getvalue(aux)
+                    self.add(ULT(aux,last_value))
+                    i = i + 1
+                else:
+                    raise Exception("solver failed")
+                if (i > M):
+                    raise Exception("Maximum not found, maximum number of iterations was reached")
+        finally:
+            self.pop()
+
+    def minmax(self, x, iters=10000):
+        ''' Returns the min and max possible values for x. '''
+        if isconcrete(x):
+            return x,x
+        m = self.min(x,iters)
+        M = self.max(x,iters)
+        return m, M
+
+    # push pop
+    def push(self):
+        ''' Pushes and save the current state.'''
+        if self._status is None:
+            self.reset()
+        self._send('(push 1)')
+        self._stack.append((self._sid, self._declarations, self._constraints))
+        self._declarations = copy.copy(self._declarations)
+        self._constraints = copy.copy(self._constraints)
+
+    def pop(self):
+        ''' Recall the last pushed state. '''
+        self._send('(pop 1)')
+        self._sid, self._declarations, self._constraints = self._stack.pop()
+        self._status = 'unknown'
+
+    ## UTILS: check-sat get-value simplify
+    def check(self):
+        ''' Check the satisfiability of the current state '''
+        if self._status is None:
+            self.reset()
+        if self._status == 'unknown':
+            self._send('(check-sat)')
+            self._status = self._recv()
+        return self._status
+
+    def getvalue(self, val):
+        ''' Ask the solver for one possible assigment for val using currrent set
+            of constraints.
+            The current set of assertions must be sat.
+            @param val: an expression or symbol '''
+        if isconcrete(val):
+            return val
+        assert self.check() == 'sat'
+        self._send('(get-value (%s))'%val)
+        ret = self._recv()
+        assert ret.startswith('((') and ret.endswith('))')
+        ret = ret[2:-2]
+        var_name, ret = ret[:ret.rfind('(')], ret[ret.rfind('('):]
+        assert ret.startswith('(') and ret.endswith(')')
+        index = ret.rfind('(')
+        var_value, var_size = ret[index+3:-1].split(' ', 1)
+        assert var_value.startswith('bv')
+        value = int(var_value[2:])
+        return value
+
+    def getvaluebyname(self, name):
+        ''' Ask the solver for one possible assigment for val using currrent set
+            of constraints.
+            The current set of assertions must be sat.
+            @param val: an expression or symbol '''
+        val = self._declarations[name]
+
+        assert self.check() == 'sat'
+        self._send('(get-value (%s))'%val)
+        ret = self._recv()
+        assert ret.startswith('((') and ret.endswith('))')
+        var_name, ret = ret[2:-2].split(' ', 1)
+        assert ret.startswith('(_') and ret.endswith(')')
+        var_value, var_size = ret[3:-1].split(' ', 1)
+        assert var_value.startswith('bv')
+        value = int(var_value[2:])
+        return value
+
+    def simplify(self, val):
+        ''' Ask the solver to try to simplify the expression val.
+            This works only with z3.
+            @param val: a symbol or expression.
+        '''
+        if self._status is None:
+            self.reset()
+        #file('simplifications.txt','a').write('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val+'\n')
+        if not isinstance(val, (BitVec, Bool)):
+            return val
+        self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
+        result = self._recv()
+        if "bvsmod_i" in result:
+            return val
+
+        #TODO clean move casts somewhere else.  BitVec8, BitVec16, BitVec32, BitVec64, BitVec127 __new__() ?
+        if type(val) is BitVec:
+            if result.startswith('#x'):
+                return int(result[2:],16)
+            return BitVec(val.size, result, solver=val.solver)
+        elif type(val) is Bool:
+            return {'false':False, 'true':True}.get(result, Bool(result,solver=val.solver))
+
+    ## declarations
+    def mkBitVec(self, size, name = 'V', is_input=False):
+        ''' Creates a symbol in the constrains store and names it name'''
+        assert size in [1,8,16,32,64,128,256]
+        if name in self._declarations:
+            # return self._declarations[name]
+            name = '%s_%d'%(name, self._get_sid())
+        bv = BitVec(size, name, solver=self)
+        self._declarations[name] = bv
+        self._send(bv.declaration)
+        if is_input:
+            self.input_symbols.append((bv,))
+        return bv
+
+    def mkArray(self, size=32, name='A', is_input=False, max_size=100):
+        ''' Creates a symbols array in the constrains store and names it name'''
+        assert size in [8,16,32,64]
+        if name in self._declarations:
+            # print "INDECLS ALREADY!!!"
+            # name = '%s_%d'%(name, self._get_sid())
+            return self._declarations[name]
+
+        arr = Array(size, name, solver=self)
+        self._declarations[name] = arr #.array
+        self._send(arr.declaration)
+        if is_input:
+            self.input_symbols.append((arr, max_size))
+        return arr
+
+    def mkArrayNew(self, size=32, name='A', is_input=False, max_size=100):
+        ''' Creates a symbols array in the constrains store and names it name'''
+        assert size in [8,16,32,64]
+
+        arr = Array(size, name, solver=self)
+
         return arr
 
     def mkBool(self, name='B', is_input=False):

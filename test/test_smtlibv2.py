@@ -26,6 +26,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from smtlibv2 import *
+# from smtlibv2 import CVC4Solver as Solver
 import unittest
 import fcntl
 import resource
