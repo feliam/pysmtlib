@@ -727,14 +727,31 @@ class Solver(object):
         ''' Ask the solver for one possible assigment for val using currrent set
             of constraints.
             The current set of assertions must be sat.
-            @param val: an expression or symbol '''
+            @param val: an expression or symbol 
+            Z3:
+            ((a #x00000000))
+            CVC4:
+            ((b (_ bv0 32)))
+            YICES:
+            ((a #b00000000000000000000000000000000))
+        '''
         if isconcrete(val):
             return val
         assert self.check() == 'sat'
         self._send('(get-value (%s))'%val)
         ret = self._recv()
         assert ret.startswith('((') and ret.endswith('))')
-        return int(ret.split(' ')[-1][2:-2],16)
+        rslt_name, rslt_val = ret[2:-2].split(' ')
+        assert(rslt_name == str(val))
+        if rslt_val.startswith("#x"):
+            return int(rslt_val[2:],16)
+        elif rslt_val.startswith("#b"):
+            return int(rslt_val[2:],2)
+        elif rslt_val.startswith("(_ "):
+            return int(rslt_val[5:].split(' ')[0])
+        else:
+            raise NotImplemented()
+
 
     def simplify(self, val):
         ''' Ask the solver to try to simplify the expression val.
@@ -748,6 +765,7 @@ class Solver(object):
             return val
         self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
         result = self._recv()
+        #TODO fix this HACK!
         if "bvsmod_i" in result:
             return val
 
