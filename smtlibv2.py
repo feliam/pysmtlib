@@ -30,6 +30,7 @@ import logging
 import copy
 import weakref
 from functools import wraps
+import re
 
 import logging
 logger = logging.getLogger("SMT")
@@ -484,12 +485,29 @@ class Array(object):
 #solver
 class Solver(object):
 
-    _config = { 'z3':     { 'command': 'z3 -t:120 -smt2 -in',
-                            'init': ['(set-option :global-decls false)'],
-                            'version': ('z3 --version', 'Z3 version 4.3.2') },
-                'cvc4':   { 'command': 'cvc4 --incremental --lang=smt2',
-                            'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)', '(set-info :smt-lib-version 2.5)']},
-              }
+    _config = {
+        'z3': {
+            'command': 'z3 -t:120 -smt2 -in',
+            'init': ['(set-option :global-decls false)'],
+            'version': ('z3 -version', 'Z3 version 4.3.2'),
+            'get-value-fmt': ('\(\((?P<expr>(.*))\ #x(?P<value>([0-9a-fA-F]*))\)\)', 16),
+            'support-simplify' : True,
+        },
+        'cvc4': {
+            'command': 'cvc4 --incremental --lang=smt2',
+            # 'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)', '(set-info :smt-lib-version 2.5)']},
+            'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)'],
+            'get-value-fmt': ('\(\((?P<expr>(.*))\ \(_\ bv(?P<value>(\d*))\ \d*\)\)\)', 10),
+            'support-simplify' : False,
+        },
+        'yices' : {
+            'command': 'yices-smt2 --incremental',
+            'init': ['(set-logic QF_AUFBV)'],
+            'get-value-fmt' : ('\(\((?P<expr>(.*))\ #b(?P<value>([0-1]*))\)\)', 2),
+            'support-simplify' : False,
+        },
+    }
+
     def __init__(self, engine='z3'):
         ''' Build a solver intance.
             This is implemented using an external native solver via a subprocess.
@@ -514,7 +532,7 @@ class Solver(object):
     def _check_solver_version(self):
         if 'version' in self._config[self._engine]:
             command, banner = self._config[self._engine]['version']
-            assert banner in check_output(command.split(' '))
+            # assert banner in check_output(command.split(' '))
 
     def _start_proc(self):
         self._check_solver_version()
@@ -539,11 +557,13 @@ class Solver(object):
         state['constraints'] = self._constraints
         state['stack'] = self._stack
         state['input_symbols'] = self.input_symbols
+        state['status'] = self._status
         return state
 
     def __setstate__(self, state):
         self._engine = state['engine']
-        self._status = None
+        #self._status = None
+        self._status = state['status']
         self._sid = state['sid']
         self._declarations = state['declarations'] #weakref.WeakValueDictionary(state['declarations'])
         self._constraints = state['constraints']
@@ -733,15 +753,26 @@ class Solver(object):
         ''' Ask the solver for one possible assigment for val using currrent set
             of constraints.
             The current set of assertions must be sat.
-            @param val: an expression or symbol '''
+            @param val: an expression or symbol
+            Z3:
+            ((a #x00000000))
+            CVC4:
+            ((b (_ bv0 32)))
+            YICES:
+            ((a #b00000000000000000000000000000000))
+        '''
         if isconcrete(val):
             return val
         assert self.check() == 'sat'
         self._send('(get-value (%s))'%val)
         ret = self._recv()
         assert ret.startswith('((') and ret.endswith('))')
-        return int(ret.split(' ')[-1][2:-2],16)
-
+        fmt, base = self._config[self._engine]['get-value-fmt']
+        p = re.compile(fmt)
+        m = p.match(ret)
+        expr, value = m.group('expr'), m.group('value')
+        assert(expr == str(val))
+        return int(value, base)
 
     def simplify(self, val):
         ''' Ask the solver to try to simplify the expression val.
@@ -753,10 +784,9 @@ class Solver(object):
         #file('simplifications.txt','a').write('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val+'\n')
         if not isinstance(val, (BitVec, Bool)):
             return val
-        # Z3
-        # self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
-        # CVC4
-        self._send('(simplify %s)'%val)
+        if not self._config[self._engine]['support-simplify']:
+            return val
+        self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
         result = self._recv()
         if "bvsmod_i" in result:
             return val
