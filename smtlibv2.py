@@ -25,7 +25,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from subprocess import PIPE, Popen
+from subprocess import PIPE, Popen, check_output
 import logging
 import copy
 import weakref
@@ -479,9 +479,10 @@ class Array(object):
 class Solver(object):
 
     _config = { 'z3':     { 'command': 'z3 -t:120 -smt2 -in', 
-                            'init': ['(set-option :global-decls false)']},
+                            'init': ['(set-option :global-decls false)'],
+                            'version': ('z3 --version', 'Z3 version 4.3.2') },
                 'cvc4':   { 'command': 'cvc4 --incremental --lang=smt2',
-                            'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)']},
+                            'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)', '(set-info :smt-lib-version 2.5)']},
               }
     def __init__(self, engine='z3'):
         ''' Build a solver intance.
@@ -493,19 +494,35 @@ class Solver(object):
             The analisys may be saved to disk and continued after a while or 
             forked in memory or even sent over the network.
         '''
-        self._engine = 'z3'
+        self._engine = engine
         self._status = 'unknown'
         self._sid = 0
         self._stack = []
         self._declarations = {} #weakref.WeakValueDictionary()
         self._constraints = set()
         self.input_symbols = list()
-        self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
+        self._proc = None
+        self._check_solver_version()
+        self._start_proc()
 
+    def _check_solver_version(self):
+        if 'version' in self._config[self._engine]:
+            command, banner = self._config[self._engine]['version']
+            assert banner in check_output(command.split(' '))
+
+    def _start_proc(self):
+        self._check_solver_version()
+        self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
         #run solver specific initializations
         for cfg in self._config[self._engine]['init']:
             self._send(cfg)
 
+
+    def _stop_proc(self):
+        #self._send('(quit)')
+        self._proc.kill()
+        self._proc.wait()
+        self._proc = None
 
     #marshaling/pickle
     def __getstate__(self):
@@ -526,11 +543,7 @@ class Solver(object):
         self._constraints = state['constraints']
         self._stack = state['stack']
         self.input_symbols = state['input_symbols']
-        self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
-        #run solver specific initializations
-        for cfg in self._config[self._engine]['init']:
-            self._send(cfg)
-
+        self._start_proc()
 
     def reset(self):
         self._send("(reset)")
@@ -541,9 +554,7 @@ class Solver(object):
         self._status = 'unknown'
 
     def __del__(self):
-        self._proc.kill()
-        self._proc.wait()
-        self._proc = None
+        self._stop_proc()
 
     def _get_sid(self):
         ''' Returns an unique id. '''
