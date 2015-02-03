@@ -499,7 +499,7 @@ class Solver(object):
             The analisys may be saved to disk and continued after a while or 
             forked in memory or even sent over the network.
         '''
-        self._engine = 'z3'
+        self._engine = engine
         self._status = 'unknown'
         self._sid = 0
         self._stack = []
