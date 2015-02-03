@@ -54,7 +54,7 @@ def goaux_bv(old_method):
             print '-'*60
             sys.stdin.readline()
             pass
-        
+
         if isinstance(bv, Symbol) and len(str(bv.value))>200 and self.solver is not None:
             aux = self.solver.mkBitVec(bv.size)
             self.solver.add(aux == bv)
@@ -151,11 +151,11 @@ class BitVec(Symbol):
     #def __str__(self, *args, **kwargs):
     #        return self.value
 
-    # These methods are called to implement the binary arithmetic operations 
-    # (+, -, *, //, %, divmod(), pow(), **, <<, >>, &, ^, |). For instance, to 
-    # evaluate the expression x + y, where x is an instance of a class that has 
+    # These methods are called to implement the binary arithmetic operations
+    # (+, -, *, //, %, divmod(), pow(), **, <<, >>, &, ^, |). For instance, to
+    # evaluate the expression x + y, where x is an instance of a class that has
     # an __add__() method, x.__add__(y) is called. The __divmod__() method should
-    # be the equivalent to using __floordiv__() and __mod__(); it should not be 
+    # be the equivalent to using __floordiv__() and __mod__(); it should not be
     # related  to __truediv__() (described below). Note that __pow__() should be
     # defined to accept an optional third argument if the ternary version of the
     # built-in pow() function is to be supported.
@@ -178,7 +178,7 @@ class BitVec(Symbol):
     @goaux_bv
     def __mod__(self, other):
         return BitVec(self.size, 'bvsmod', self, self.cast(other), solver=self.solver)
-    #object.__divmod__(self, other) 
+    #object.__divmod__(self, other)
     #object.__pow__(self, other[, modulo])
 
     @goaux_bv
@@ -203,8 +203,8 @@ class BitVec(Symbol):
     def __or__(self,other):
         return BitVec(self.size, 'bvor', self, self.cast(other), solver=self.solver)
     #The division operator (/) is implemented by these methods. The __truediv__()
-    # method is used when __future__.division is in effect, otherwise __div__() 
-    # is used. If only one of these two methods is defined, the object will not 
+    # method is used when __future__.division is in effect, otherwise __div__()
+    # is used. If only one of these two methods is defined, the object will not
     # support division in the alternate context; TypeError will be raised instead.
 
     @goaux_bv
@@ -214,12 +214,12 @@ class BitVec(Symbol):
     @goaux_bv
     def __truediv__(self,other):
         return BitVec(self.size, 'bvsdiv', self, self.cast(other), solver=self.solver)
-    #These methods are called to implement the binary arithmetic operations (+, 
+    #These methods are called to implement the binary arithmetic operations (+,
     # -, *, /, %, divmod(), pow(), **, <<, >>, &, ^, |) with reflected (swapped)
-    # operands. These functions are only called if the left operand does not 
-    # support the corresponding operation and the operands are of different types. 
+    # operands. These functions are only called if the left operand does not
+    # support the corresponding operation and the operands are of different types.
     # [2] For instance, to evaluate the expression x - y, where y is an instance
-    # of a class that has an __rsub__() method, y.__rsub__(x) is called if 
+    # of a class that has an __rsub__() method, y.__rsub__(x) is called if
     # x.__sub__(y) returns NotImplemented.
 
     @goaux_bv
@@ -275,10 +275,10 @@ class BitVec(Symbol):
         return BitVec(self.size, 'bvnot', self, solver=self.solver)
 
 
-    #These are the so-called "rich comparison" methods, and are called for 
+    #These are the so-called "rich comparison" methods, and are called for
     # comparison operators in preference to __cmp__() below. The  correspondence
-    # between operator symbols and method names is as follows: x<y calls 
-    # x.__lt__(y), x<=y calls x.__le__(y), x==y calls x.__eq__(y), x!=y and 
+    # between operator symbols and method names is as follows: x<y calls
+    # x.__lt__(y), x<=y calls x.__le__(y), x==y calls x.__eq__(y), x!=y and
     # x<>y call x.__ne__(y), x>y calls x.__gt__(y), and x>=y calls x.__ge__(y).
 
     @goaux_bool
@@ -484,7 +484,7 @@ class Array(object):
 #solver
 class Solver(object):
 
-    _config = { 'z3':     { 'command': 'z3 -t:120 -smt2 -in', 
+    _config = { 'z3':     { 'command': 'z3 -t:120 -smt2 -in',
                             'init': ['(set-option :global-decls false)']},
                 'cvc4':   { 'command': 'cvc4 --incremental --lang=smt2',
                             'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)']},
@@ -492,11 +492,11 @@ class Solver(object):
     def __init__(self, engine='z3'):
         ''' Build a solver intance.
             This is implemented using an external native solver via a subprocess.
-            Everytime a new symbol or assertion is added a smtlibv2 command is 
+            Everytime a new symbol or assertion is added a smtlibv2 command is
             sent to the solver.
             The actual state is also mantained in memory to be able to save and
-            restore the state. 
-            The analisys may be saved to disk and continued after a while or 
+            restore the state.
+            The analisys may be saved to disk and continued after a while or
             forked in memory or even sent over the network.
         '''
         self._engine = engine
@@ -539,7 +539,12 @@ class Solver(object):
 
 
     def reset(self):
-        self._send("(reset)")
+        if self._engine == 'cvc4':
+            self._proc.kill()
+            self._proc.wait()
+            self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)
+        else: # z3
+            self._send("(reset)")
         #run solver specific initializations
         for cfg in self._config[self._engine]['init']:
             self._send(cfg)
@@ -729,7 +734,17 @@ class Solver(object):
         self._send('(get-value (%s))'%val)
         ret = self._recv()
         assert ret.startswith('((') and ret.endswith('))')
-        return int(ret.split(' ')[-1][2:-2],16)
+        if self._engine == 'cvc4':
+            ret = ret[2:-2]
+            var_name, ret = ret[:ret.rfind('(')], ret[ret.rfind('('):]
+            assert ret.startswith('(') and ret.endswith(')')
+            index = ret.rfind('(')
+            var_value, var_size = ret[index+3:-1].split(' ', 1)
+            assert var_value.startswith('bv')
+            rv = int(var_value[2:])
+        else: #z3
+            rv = int(ret.split(' ')[-1][2:-2],16)
+        return rv
 
     def simplify(self, val):
         ''' Ask the solver to try to simplify the expression val.
@@ -741,7 +756,10 @@ class Solver(object):
         #file('simplifications.txt','a').write('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val+'\n')
         if not isinstance(val, (BitVec, Bool)):
             return val
-        self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
+        # Z3
+        # self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
+        # CVC4
+        self._send('(simplify %s)'%val)
         result = self._recv()
         if "bvsmod_i" in result:
             return val
@@ -829,7 +847,7 @@ def isconcrete(x):
 ################################################################################
 #friend operations
 def AND(a,b):
-    return a & b 
+    return a & b
 
 def OR(a, b):
     return a | b
