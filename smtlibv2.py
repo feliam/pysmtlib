@@ -490,20 +490,20 @@ class Solver(object):
             'command': 'z3 -t:120 -smt2 -in',
             'init': ['(set-option :global-decls false)'],
             'version': ('z3 -version', 'Z3 version 4.3.2'),
-            'get-value-fmt': ('\(\((?P<expr>(.*))\ #x(?P<value>([0-9a-fA-F]*))\)\)', 16),
+            'get-value-fmt': (re.compile('\(\((?P<expr>(.*))\ #x(?P<value>([0-9a-fA-F]*))\)\)'), 16),
             'support-simplify' : True,
         },
         'cvc4': {
             'command': 'cvc4 --incremental --lang=smt2',
             # 'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)', '(set-info :smt-lib-version 2.5)'],
             'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)'],
-            'get-value-fmt': ('\(\((?P<expr>(.*))\ \(_\ bv(?P<value>(\d*))\ \d*\)\)\)', 10),
+            'get-value-fmt': (re.compile('\(\((?P<expr>(.*))\ \(_\ bv(?P<value>(\d*))\ \d*\)\)\)'), 10),
             'support-simplify' : False,
         },
         'yices' : {
             'command': 'yices-smt2 --incremental',
             'init': ['(set-logic QF_AUFBV)'],
-            'get-value-fmt' : ('\(\((?P<expr>(.*))\ #b(?P<value>([0-1]*))\)\)', 2),
+            'get-value-fmt' : (re.compile('\(\((?P<expr>(.*))\ #b(?P<value>([0-1]*))\)\)'), 2),
             'support-simplify' : False,
         },
     }
@@ -767,9 +767,8 @@ class Solver(object):
         self._send('(get-value (%s))'%val)
         ret = self._recv()
         assert ret.startswith('((') and ret.endswith('))')
-        fmt, base = self._config[self._engine]['get-value-fmt']
-        p = re.compile(fmt)
-        m = p.match(ret)
+        pattern, base = self._config[self._engine]['get-value-fmt']
+        m = pattern.match(ret)
         expr, value = m.group('expr'), m.group('value')
         assert(expr == str(val))
         return int(value, base)
