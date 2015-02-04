@@ -55,7 +55,7 @@ def goaux_bv(old_method):
             print '-'*60
             sys.stdin.readline()
             pass
-
+        
         if isinstance(bv, Symbol) and len(str(bv.value))>200 and self.solver is not None:
             aux = self.solver.mkBitVec(bv.size)
             self.solver.add(aux == bv)
@@ -152,11 +152,11 @@ class BitVec(Symbol):
     #def __str__(self, *args, **kwargs):
     #        return self.value
 
-    # These methods are called to implement the binary arithmetic operations
-    # (+, -, *, //, %, divmod(), pow(), **, <<, >>, &, ^, |). For instance, to
-    # evaluate the expression x + y, where x is an instance of a class that has
+    # These methods are called to implement the binary arithmetic operations 
+    # (+, -, *, //, %, divmod(), pow(), **, <<, >>, &, ^, |). For instance, to 
+    # evaluate the expression x + y, where x is an instance of a class that has 
     # an __add__() method, x.__add__(y) is called. The __divmod__() method should
-    # be the equivalent to using __floordiv__() and __mod__(); it should not be
+    # be the equivalent to using __floordiv__() and __mod__(); it should not be 
     # related  to __truediv__() (described below). Note that __pow__() should be
     # defined to accept an optional third argument if the ternary version of the
     # built-in pow() function is to be supported.
@@ -179,7 +179,7 @@ class BitVec(Symbol):
     @goaux_bv
     def __mod__(self, other):
         return BitVec(self.size, 'bvsmod', self, self.cast(other), solver=self.solver)
-    #object.__divmod__(self, other)
+    #object.__divmod__(self, other) 
     #object.__pow__(self, other[, modulo])
 
     @goaux_bv
@@ -204,8 +204,8 @@ class BitVec(Symbol):
     def __or__(self,other):
         return BitVec(self.size, 'bvor', self, self.cast(other), solver=self.solver)
     #The division operator (/) is implemented by these methods. The __truediv__()
-    # method is used when __future__.division is in effect, otherwise __div__()
-    # is used. If only one of these two methods is defined, the object will not
+    # method is used when __future__.division is in effect, otherwise __div__() 
+    # is used. If only one of these two methods is defined, the object will not 
     # support division in the alternate context; TypeError will be raised instead.
 
     @goaux_bv
@@ -215,12 +215,12 @@ class BitVec(Symbol):
     @goaux_bv
     def __truediv__(self,other):
         return BitVec(self.size, 'bvsdiv', self, self.cast(other), solver=self.solver)
-    #These methods are called to implement the binary arithmetic operations (+,
+    #These methods are called to implement the binary arithmetic operations (+, 
     # -, *, /, %, divmod(), pow(), **, <<, >>, &, ^, |) with reflected (swapped)
-    # operands. These functions are only called if the left operand does not
-    # support the corresponding operation and the operands are of different types.
+    # operands. These functions are only called if the left operand does not 
+    # support the corresponding operation and the operands are of different types. 
     # [2] For instance, to evaluate the expression x - y, where y is an instance
-    # of a class that has an __rsub__() method, y.__rsub__(x) is called if
+    # of a class that has an __rsub__() method, y.__rsub__(x) is called if 
     # x.__sub__(y) returns NotImplemented.
 
     @goaux_bv
@@ -276,10 +276,10 @@ class BitVec(Symbol):
         return BitVec(self.size, 'bvnot', self, solver=self.solver)
 
 
-    #These are the so-called "rich comparison" methods, and are called for
+    #These are the so-called "rich comparison" methods, and are called for 
     # comparison operators in preference to __cmp__() below. The  correspondence
-    # between operator symbols and method names is as follows: x<y calls
-    # x.__lt__(y), x<=y calls x.__le__(y), x==y calls x.__eq__(y), x!=y and
+    # between operator symbols and method names is as follows: x<y calls 
+    # x.__lt__(y), x<=y calls x.__le__(y), x==y calls x.__eq__(y), x!=y and 
     # x<>y call x.__ne__(y), x>y calls x.__gt__(y), and x>=y calls x.__ge__(y).
 
     @goaux_bool
@@ -495,7 +495,7 @@ class Solver(object):
         },
         'cvc4': {
             'command': 'cvc4 --incremental --lang=smt2',
-            # 'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)', '(set-info :smt-lib-version 2.5)']},
+            # 'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)', '(set-info :smt-lib-version 2.5)'],
             'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)'],
             'get-value-fmt': ('\(\((?P<expr>(.*))\ \(_\ bv(?P<value>(\d*))\ \d*\)\)\)', 10),
             'support-simplify' : False,
@@ -511,11 +511,11 @@ class Solver(object):
     def __init__(self, engine='z3'):
         ''' Build a solver intance.
             This is implemented using an external native solver via a subprocess.
-            Everytime a new symbol or assertion is added a smtlibv2 command is
+            Everytime a new symbol or assertion is added a smtlibv2 command is 
             sent to the solver.
             The actual state is also mantained in memory to be able to save and
-            restore the state.
-            The analisys may be saved to disk and continued after a while or
+            restore the state. 
+            The analisys may be saved to disk and continued after a while or 
             forked in memory or even sent over the network.
         '''
         self._engine = engine
@@ -562,7 +562,7 @@ class Solver(object):
 
     def __setstate__(self, state):
         self._engine = state['engine']
-        #self._status = None
+        # self._status = None
         self._status = state['status']
         self._sid = state['sid']
         self._declarations = state['declarations'] #weakref.WeakValueDictionary(state['declarations'])
@@ -673,7 +673,7 @@ class Solver(object):
                         return last_value
                     else:
                         raise Exception("max failed")
-                elif r =='sat':
+                elif r =='sat': 
                     last_value = self.getvalue(aux)
                     self.add(UGT(aux,last_value))
                     i = i + 1
@@ -704,7 +704,7 @@ class Solver(object):
                         return last_value
                     else:
                         raise Exception("max failed")
-                elif r =='sat':
+                elif r =='sat': 
                     last_value = self.getvalue(aux)
                     self.add(ULT(aux,last_value))
                     i = i + 1
@@ -739,7 +739,7 @@ class Solver(object):
         self._sid, self._declarations, self._constraints = self._stack.pop()
         self._status = 'unknown'
 
-    ## UTILS: check-sat get-value simplify
+    ## UTILS: check-sat get-value simplify 
     def check(self):
         ''' Check the satisfiability of the current state '''
         if self._status is None:
@@ -753,7 +753,7 @@ class Solver(object):
         ''' Ask the solver for one possible assigment for val using currrent set
             of constraints.
             The current set of assertions must be sat.
-            @param val: an expression or symbol
+            @param val: an expression or symbol 
             Z3:
             ((a #x00000000))
             CVC4:
@@ -777,7 +777,7 @@ class Solver(object):
     def simplify(self, val):
         ''' Ask the solver to try to simplify the expression val.
             This works only with z3.
-            @param val: a symbol or expression.
+            @param val: a symbol or expression. 
         '''
         if self._status is None:
             self.reset()
@@ -788,6 +788,7 @@ class Solver(object):
             return val
         self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
         result = self._recv()
+        #TODO fix this HACK!
         if "bvsmod_i" in result:
             return val
 
@@ -874,7 +875,7 @@ def isconcrete(x):
 ################################################################################
 #friend operations
 def AND(a,b):
-    return a & b
+    return a & b 
 
 def OR(a, b):
     return a | b
