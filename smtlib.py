@@ -30,6 +30,7 @@ import logging
 import copy
 import weakref
 from functools import wraps
+import re
 
 import logging
 logger = logging.getLogger("SMT")
@@ -484,12 +485,32 @@ class Array(object):
 #solver
 class Solver(object):
 
-    _config = { 'z3':     { 'command': 'z3 -t:120 -smt2 -in', 
-                            'init': ['(set-option :global-decls false)'],
-                            'version': ('z3 --version', 'Z3 version 4.3.2') },
-                'cvc4':   { 'command': 'cvc4 --incremental --lang=smt2',
-                            'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)', '(set-info :smt-lib-version 2.5)']},
-              }
+    _config = {
+        'z3': {
+            'command': 'z3 -t:120 -smt2 -in',
+            'init': ['(set-option :global-decls false)'],
+            'version': ('z3 -version', 'Z3 version 4.3.2'),
+            'get-value-fmt': (re.compile('\(\((?P<expr>(.*))\ #x(?P<value>([0-9a-fA-F]*))\)\)'), 16),
+            'support-simplify' : True,
+            'support-reset' : True,
+        },
+        'cvc4': {
+            'command': 'cvc4 --incremental --lang=smt2',
+            # 'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)', '(set-info :smt-lib-version 2.5)'],
+            'init': ['(set-logic QF_AUFBV)', '(set-option :produce-models true)'],
+            'get-value-fmt': (re.compile('\(\((?P<expr>(.*))\ \(_\ bv(?P<value>(\d*))\ \d*\)\)\)'), 10),
+            'support-simplify' : False,
+            'support-reset' : False,
+        },
+        'yices' : {
+            'command': 'yices-smt2 --incremental',
+            'init': ['(set-logic QF_AUFBV)'],
+            'get-value-fmt' : (re.compile('\(\((?P<expr>(.*))\ #b(?P<value>([0-1]*))\)\)'), 2),
+            'support-simplify' : False,
+            'support-reset' : False,
+        },
+    }
+
     def __init__(self, engine='z3'):
         ''' Build a solver intance.
             This is implemented using an external native solver via a subprocess.
@@ -514,10 +535,9 @@ class Solver(object):
     def _check_solver_version(self):
         if 'version' in self._config[self._engine]:
             command, banner = self._config[self._engine]['version']
-            assert banner in check_output(command.split(' '))
+            # assert banner in check_output(command.split(' '))
 
     def _start_proc(self):
-        self._check_solver_version()
         self._proc = Popen(self._config[self._engine]['command'], shell=True, stdin=PIPE, stdout=PIPE)        #'stp --SMTLIB2'
         #run solver specific initializations
         for cfg in self._config[self._engine]['init']:
@@ -539,11 +559,13 @@ class Solver(object):
         state['constraints'] = self._constraints
         state['stack'] = self._stack
         state['input_symbols'] = self.input_symbols
+        state['status'] = self._status
         return state
 
     def __setstate__(self, state):
         self._engine = state['engine']
-        self._status = None
+        # self._status = None
+        self._status = state['status']
         self._sid = state['sid']
         self._declarations = state['declarations'] #weakref.WeakValueDictionary(state['declarations'])
         self._constraints = state['constraints']
@@ -552,10 +574,11 @@ class Solver(object):
         self._start_proc()
 
     def reset(self):
-        self._send("(reset)")
-        #run solver specific initializations
-        for cfg in self._config[self._engine]['init']:
-            self._send(cfg)
+        if self._config[self._engine]['support-reset']:
+            self._send("(reset)")
+        else: 
+            self._stop_proc()
+            self._start_proc()
         self._send(self)
         self._status = 'unknown'
 
@@ -653,7 +676,7 @@ class Solver(object):
                         return last_value
                     else:
                         raise Exception("max failed")
-                elif r =='sat': 
+                elif r == 'sat': 
                     last_value = self.getvalue(aux)
                     self.add(UGT(aux,last_value))
                     i = i + 1
@@ -684,7 +707,7 @@ class Solver(object):
                         return last_value
                     else:
                         raise Exception("max failed")
-                elif r =='sat': 
+                elif r == 'sat': 
                     last_value = self.getvalue(aux)
                     self.add(ULT(aux,last_value))
                     i = i + 1
@@ -747,17 +770,11 @@ class Solver(object):
         self._send('(get-value (%s))'%val)
         ret = self._recv()
         assert ret.startswith('((') and ret.endswith('))')
-        rslt_name, rslt_val = ret[2:-2].split(' ')
-        assert(rslt_name == str(val))
-        if rslt_val.startswith("#x"):
-            return int(rslt_val[2:],16)
-        elif rslt_val.startswith("#b"):
-            return int(rslt_val[2:],2)
-        elif rslt_val.startswith("(_ "):
-            return int(rslt_val[5:].split(' ')[0])
-        else:
-            raise NotImplemented()
-
+        pattern, base = self._config[self._engine]['get-value-fmt']
+        m = pattern.match(ret)
+        expr, value = m.group('expr'), m.group('value')
+        assert(expr == str(val))
+        return int(value, base)
 
     def simplify(self, val):
         ''' Ask the solver to try to simplify the expression val.
@@ -768,6 +785,8 @@ class Solver(object):
             self.reset()
         #file('simplifications.txt','a').write('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val+'\n')
         if not isinstance(val, (BitVec, Bool)):
+            return val
+        if not self._config[self._engine]['support-simplify']:
             return val
         self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
         result = self._recv()
@@ -1005,7 +1024,7 @@ class CVC4Solver(object):
                         return last_value
                     else:
                         raise Exception("max failed")
-                elif r =='sat':
+                elif r == 'sat': 
                     last_value = self.getvalue(aux)
                     self.add(UGT(aux,last_value))
                     i = i + 1
@@ -1036,7 +1055,7 @@ class CVC4Solver(object):
                         return last_value
                     else:
                         raise Exception("max failed")
-                elif r =='sat':
+                elif r == 'sat': 
                     last_value = self.getvalue(aux)
                     self.add(ULT(aux,last_value))
                     i = i + 1
@@ -1071,7 +1090,7 @@ class CVC4Solver(object):
         self._sid, self._declarations, self._constraints = self._stack.pop()
         self._status = 'unknown'
 
-    ## UTILS: check-sat get-value simplify
+    ## UTILS: check-sat get-value simplify 
     def check(self):
         ''' Check the satisfiability of the current state '''
         if self._status is None:
@@ -1122,15 +1141,19 @@ class CVC4Solver(object):
     def simplify(self, val):
         ''' Ask the solver to try to simplify the expression val.
             This works only with z3.
-            @param val: a symbol or expression.
+            @param val: a symbol or expression. 
         '''
         if self._status is None:
             self.reset()
         #file('simplifications.txt','a').write('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val+'\n')
         if not isinstance(val, (BitVec, Bool)):
             return val
-        self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
+        # Z3
+        # self._send('(simplify %s  :expand-select-store true :pull-cheap-ite true )'%val)
+        # CVC4
+        self._send('(simplify %s)'%val)
         result = self._recv()
+        #TODO fix this HACK!
         if "bvsmod_i" in result:
             return val
 
