@@ -507,7 +507,7 @@ class Solver(object):
             'init': ['(set-logic QF_AUFBV)'],
             'get-value-fmt' : (re.compile('\(\((?P<expr>(.*))\ #b(?P<value>([0-1]*))\)\)'), 2),
             'support-simplify' : False,
-            'support-reset' : False,
+            'support-reset' : True,
         },
     }
 
