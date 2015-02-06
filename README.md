@@ -2,9 +2,10 @@
 A python layer to interface with several SMTlIBv2 enabled SMT solvers
 
 # Features
-Serializable. Yiou can to save, replicate and send the solver state over the network
-Python native integer operations. Operation on native python types are translates to smtlib transparently
-Multiple solvers supported
+* Serializable. 
+* You can to save, replicate and send the solver state over the network
+* Python native integer operations. Operation on native python types are translates to smtlib transparently
+* Multiple solvers supported (Z3, YICES, CVC4)
 
 #Example
 ```
