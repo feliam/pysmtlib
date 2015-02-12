@@ -50,6 +50,8 @@ class ExpressionTest(unittest.TestCase):
     def setUp(self):
         self.fds = self.get_open_fds()
 
+        self.engine = 'z3'
+
     def tearDown(self):
         gc.collect()
         gc.garbage = []
@@ -78,7 +80,7 @@ class ExpressionTest(unittest.TestCase):
     '''
 
     def testSolver(self):
-        s = Solver()
+        s = Solver(self.engine)
         a = s.mkBitVec(32)
         b = s.mkBitVec(32)
         s.add(a+b>100)
@@ -86,7 +88,7 @@ class ExpressionTest(unittest.TestCase):
         self.checkLeak(s)
 
     def testBool(self):
-        s = Solver()
+        s = Solver(self.engine)
         bf = Bool('false')
         bt = Bool('true')
         s.add( bf & bt )
@@ -94,7 +96,7 @@ class ExpressionTest(unittest.TestCase):
         self.checkLeak(s)
 
     def testBasicArray(self):
-        s = Solver()
+        s = Solver(self.engine)
         #make array of 32->8 bits
         array = s.mkArray(32)
         #make free 32bit bitvector 
@@ -136,7 +138,7 @@ class ExpressionTest(unittest.TestCase):
 
 
     def testBasicArrayStore(self):
-        s = Solver()
+        s = Solver(self.engine)
         #make array of 32->8 bits
         array = s.mkArray(32)
         #make free 32bit bitvector 
@@ -178,7 +180,7 @@ class ExpressionTest(unittest.TestCase):
 
     def testBasicPickle(self):
         import pickle
-        s = Solver()
+        s = Solver(self.engine)
         #make array of 32->8 bits
         array = s.mkArray(32)
         #make free 32bit bitvector 
@@ -193,7 +195,7 @@ class ExpressionTest(unittest.TestCase):
         self.checkLeak(s)
 
     def testBitvector_add(self):
-        s = Solver()
+        s = Solver(self.engine)
         a = s.mkBitVec(32)
         b = s.mkBitVec(32)
         c = s.mkBitVec(32)
@@ -205,7 +207,7 @@ class ExpressionTest(unittest.TestCase):
         self.checkLeak(s)
 
     def testBitvector_add1(self):
-        s = Solver()
+        s = Solver(self.engine)
         a = s.mkBitVec(32)
         b = s.mkBitVec(32)
         c = s.mkBitVec(32)
@@ -216,13 +218,85 @@ class ExpressionTest(unittest.TestCase):
         self.checkLeak(s)
 
     def testBitvector_add2(self):
-        s = Solver()
+        s = Solver(self.engine)
         a = s.mkBitVec(32)
         b = s.mkBitVec(32)
         c = s.mkBitVec(32)
         s.add(11==a+10)
         self.assertEqual(s.check(), 'sat')
         self.assertEqual(s.getvalue(a), 1)
+        self.checkLeak(s)
+
+    def testSolver_getallvalues(self):
+        s = Solver(self.engine)
+        a = s.mkBitVec(32)
+        s.add(a >= 10)
+        self.assertEqual(s.check(), 'sat')
+        values = s.getallvalues(a)
+        for value in values:
+            # print value, type(value)
+            self.assertGreaterEqual(value, 10)
+        self.checkLeak(s)
+
+    def testSolver_max(self):
+        s = Solver(self.engine)
+        a = s.mkBitVec(32)
+        s.add(a >= 10)
+        s.add(a <= 100)
+        self.assertEqual(s.check(), 'sat')
+        # print s.max(a)
+        self.assertEqual(s.max(a), 100)
+        self.checkLeak(s)
+
+    def testSolver_min(self):
+        s = Solver(self.engine)
+        a = s.mkBitVec(32)
+        s.add(a >= 10)
+        s.add(a <= 100)
+        self.assertEqual(s.check(), 'sat')
+        # print s.min(a)
+        self.assertEqual(s.min(a), 10)
+        self.checkLeak(s)
+
+    def testSolver_minmax(self):
+        s = Solver(self.engine)
+        a = s.mkBitVec(32)
+        s.add(a >= 10)
+        s.add(a <= 100)
+        self.assertEqual(s.check(), 'sat')
+        min_val, max_val = s.minmax(a)
+        self.assertEqual(min_val, 10)
+        self.assertEqual(max_val, 100)
+        self.checkLeak(s)
+
+    def testSolver_mkBitVec(self):
+        s = Solver(self.engine)
+        a = s.mkBitVec(32, 'BV')
+        decls = s.declarations
+        self.assertEqual(decls[0].declaration, '(declare-fun BV () (_ BitVec 32))')
+        self.checkLeak(s)
+
+    def testSolver_mkBool(self):
+        s = Solver(self.engine)
+        a = s.mkBool('B')
+        decls = s.declarations
+        self.assertEqual(decls[0].declaration, '(declare-fun B () Bool)')
+        self.checkLeak(s)
+
+    def testSolver_mkArray(self):
+        s = Solver(self.engine)
+        a = s.mkArray(32, 'A')
+        decls = s.declarations
+        self.assertEqual(decls[0].declaration, '(declare-fun A () (Array (_ BitVec 32) (_ BitVec 8)))')
+        self.checkLeak(s)
+
+    def testSolver_constraints(self):
+        s = Solver(self.engine)
+        a = s.mkBitVec(32, 'A')
+        b = s.mkBitVec(32, 'B')
+        s.add(a == b)
+        constrs = s.constraints
+        self.assertEqual(constrs[0], '(assert (= A B))')
         self.checkLeak(s)
 
 if __name__ == '__main__':
