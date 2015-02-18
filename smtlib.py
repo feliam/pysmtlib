@@ -649,7 +649,7 @@ class Solver(object):
                 self.add(x!=val)
                 r = self.check()
                 if len(result) > maxcnt:
-                    raise Exception("Max number of different solutions hit")
+                    raise Exception("Max number of different solutions hit") # Why throw an exception here?
         except Exception,e:
             raise e
         finally:
@@ -843,7 +843,7 @@ class Solver(object):
     def declarations(self):
         declarations = []
         for name, var in self._declarations.items():
-            print name, var
+            # print name, var
             declarations.append(var)
         return declarations
 
