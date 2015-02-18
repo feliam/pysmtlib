@@ -10,7 +10,7 @@ setup(
     author = "Felipe Andres Manzano",
     author_email = "feliam@binamuse.com",
     description = ("A tool for symbolic execution of Intel 64 binaries."),
-    requires =  ['' ],
+    # requires =  ['' ],
     provides =  ['pysmtlib'],
     license = "BSD",
     url = 'http://github.com/feliam/pysmtlib',
