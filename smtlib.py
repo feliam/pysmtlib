@@ -943,7 +943,7 @@ def ZEXTEND(x, size):
 
 def SEXTEND(x, size_src, size_dest):
     if type(x) in (int, long):
-        if x > (1<<(size_src-1)):
+        if x >= (1<<(size_src-1)):
             x -= 1<<size_src
         return x & ((1<<size_dest)-1)
     return BitVec(size_dest, '(_ sign_extend %s)'%(size_dest-x.size), x, solver=x.solver)
